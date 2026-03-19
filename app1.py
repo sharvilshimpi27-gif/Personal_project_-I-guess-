@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import random
-from datetime import datetime, timedelta
+from datetime import datetime
+import yfinance as yf
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -266,38 +265,101 @@ def get_css(dark: bool) -> str:
 
 st.markdown(get_css(st.session_state.dark_mode), unsafe_allow_html=True)
 
-# ── Fake data helpers ──────────────────────────────────────────────────────────
-TICKERS = ["AAPL","MSFT","GOOGL","AMZN","NVDA","TSLA","META","NFLX","AMD","INTC"]
+# ── Real data helpers ──────────────────────────────────────────────────────────
+TICKERS = ['RELIANCE.ns', 'HDFCBANK.ns', 'BHARTIARTL.ns', 'TCS.ns', 'ICICIBANK.ns', 'SBIN.ns', 'INFY.ns',
+                      'BAJFINANCE.ns', 'HINDUNILVR.ns', 'LICI.ns', 'LT.ns', 'ITC.ns', 'MARUTI.ns', 'M&M.ns',
+                      'HCLTECH.ns', 'KOTAKBANK.ns', 'SUNPHARMA.ns', 'AXISBANK.ns', 'ULTRACEMCO.ns', 'BAJAJFINSV.ns',
+                      'TITAN.ns', 'NTPC.ns', 'HAL.ns', 'ADANIPORTS.ns', 'ONGC.ns', 'ETERNAL.ns', 'BEL.ns',
+                      'ADANIENT.ns', 'DMART.ns', 'JSWSTEEL.ns', 'ADANIPOWER.ns', 'WIPRO.ns', 'POWERGRID.ns',
+                      'ASIANPAINT.ns', 'BAJAJ-AUTO.ns', 'COALINDIA.ns', 'NESTLEIND.ns', 'INDIGO.ns', 'IOC.ns',
+                      'TATASTEEL.ns', 'TMPV.ns', 'HINDZINC.ns', 'JIOFIN.ns', 'HYUNDAI.ns', 'GRASIM.ns', 'SBILIFE.ns',
+                      'VEDL.ns', 'DLF.ns', 'EICHERMOT.ns', 'TRENT.ns', 'HINDALCO.ns', 'DIVISLAB.ns', 'HDFCLIFE.ns',
+                      'LTM.ns', 'IRFC.ns', 'ADANIGREEN.ns', 'VBL.ns', 'TVSMOTOR.ns', 'PIDILITIND.ns', 'BPCL.ns',
+                      'TECHM.ns', 'BAJAJHLDNG.ns', 'BRITANNIA.ns', 'AMBUJACEM.ns', 'TATACAP.ns', 'BANKBARODA.ns',
+                      'CHOLAFIN.ns', 'SHRIRAMFIN.ns', 'TMCV.ns', 'PNB.ns', 'ICICIAMC.ns', 'PFC.ns', 'SOLARINDS.ns',
+                      'MUTHOOTFIN.ns', 'TATAPOWER.ns', 'CIPLA.ns', 'TORNTPHARM.ns', 'GODREJCP.ns', 'LODHA.ns',
+                      'HDFCAMC.ns', 'GAIL.ns', 'CANBK.ns', 'MAXHEALTH.ns', 'ENRIN.ns', 'SIEMENS.ns', 'MAZDOCK.ns',
+                      'BOSCHLTD.ns', 'ABB.ns', 'MOTHERSON.ns', 'CUMMINSIND.ns', 'TATACONSUM.ns', 'LGEINDIA.ns',
+                      'POLYCAB.ns', 'CGPOWER.ns', 'UNIONBANK.ns', 'ADANIENSOL.ns', 'APOLLOHOSP.ns', 'INDHOTEL.ns',
+                      'HEROMOTOCO.ns']
 
 @st.cache_data(ttl=60)
-def fake_price(ticker):
-    rng = random.Random(ticker)
-    base = rng.uniform(80, 800)
-    chg  = rng.uniform(-5, 5)
-    return round(base, 2), round(chg, 2), round(chg / base * 100, 2)
+def real_price(ticker):
+    try:
+        data = yf.Ticker(ticker)
+        hist = data.history(period="2d")
+        if len(hist) < 2:
+            return 0, 0, 0
+        prev_close = hist["Close"].iloc[0]
+        curr_close = hist["Close"].iloc[1]
+        change = round(curr_close - prev_close, 2)
+        change_pct = round((change / prev_close) * 100, 2)
+        return round(curr_close, 2), change, change_pct
+    except:
+        return 0, 0, 0
 
 @st.cache_data(ttl=60)
 def fake_ohlc(ticker, days=90):
-    rng  = random.Random(ticker + "ohlc")
-    base = rng.uniform(100, 500)
-    dates, closes = [], []
-    for i in range(days):
-        base += rng.uniform(-8, 8)
-        base  = max(base, 10)
-        dates.append(datetime.today() - timedelta(days=days - i))
-        closes.append(round(base, 2))
-    return pd.DataFrame({"Date": dates, "Price": closes})
+    try:
+        period = f"{days}d"
+        hist = yf.Ticker(ticker).history(period=period)
+        hist = hist.reset_index()[["Date", "Close"]].rename(columns={"Close": "Price"})
+        hist["Date"] = pd.to_datetime(hist["Date"]).dt.tz_localize(None)
+        return hist
+    except:
+        return pd.DataFrame({"Date": [], "Price": []})
 
 @st.cache_data(ttl=60)
 def watchlist_data():
     rows = []
     for t in TICKERS:
-        p, c, cp = fake_price(t)
-        vol = round(random.uniform(5, 120), 1)
-        mkt = round(p * random.uniform(1e9, 3e12) / 1e9, 1)
+        try:
+            info = yf.Ticker(t).fast_info
+            p, c, cp = real_price(t)
+            vol = round(info.three_month_average_volume / 1e6, 1)
+            mkt = round(info.market_cap / 1e9, 1)
+        except:
+            p, c, cp = real_price(t)
+            vol, mkt = 0, 0
         rows.append({"Ticker": t, "Price": p, "Change": c, "Change %": cp,
                      "Volume (M)": vol, "Mkt Cap (B)": mkt})
     return pd.DataFrame(rows)
+
+@st.cache_data(ttl=60)
+def major_indices(ticker):
+    data = yf.Ticker(ticker)
+    hist = data.history(period="2d")
+    if len(hist) < 2:
+        return 0, 0, 0
+    prev_close = hist["Close"].iloc[0]
+    curr_close = hist["Close"].iloc[1]
+    change = round(curr_close - prev_close, 2)
+    change_pct = round((change / prev_close) * 100, 2)
+    ret_val = [curr_close, change_pct]
+    return ret_val
+
+@st.cache_data(ttl=60)
+def get_gainers_losers(tickers: list, top_n: int = 3) -> dict:
+
+    data = yf.download(tickers, period="2d")["Close"]
+
+    if isinstance(data, pd.Series):
+        data = data.to_frame(name=tickers[0])
+
+    pct_change = data.pct_change().iloc[1] * 100
+    pct_change = pct_change.dropna().sort_values(ascending=False)
+
+    latest_price = data.iloc[1]
+
+    all_tuples = [
+        (ticker, round(float(pct_change[ticker]), 2), round(float(latest_price[ticker]), 2))
+        for ticker in pct_change.index
+    ]
+
+    return {
+        "gainers": all_tuples[:top_n],
+        "losers":  all_tuples[-top_n:]
+    }
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -326,10 +388,10 @@ page_name = page.split("  ")[-1]
 # ── Ticker banner ──────────────────────────────────────────────────────────────
 items = ""
 for t in TICKERS[:6]:
-    p, c, cp = fake_price(t)
+    p, c, cp = real_price(t)
     cls = "up" if c >= 0 else "down"
     sign = "+" if c >= 0 else ""
-    items += f'<span class="ticker-item"><b>{t}</b> ${p} <span class="{cls}">{sign}{cp}%</span></span>'
+    items += f'<span class="ticker-item"><b>{t}</b> ₹{p} <span class="{cls}">{sign}{cp}%</span></span>'
 
 st.markdown(f'<div class="ticker-wrap">{items}</div>', unsafe_allow_html=True)
 
@@ -342,10 +404,10 @@ if page_name == "Overview":
 
     # ── Key indices ────────────────────────────────────────────────────────────
     idx = {
-        "S&P 500":  (4823.45,  +1.23),
-        "NASDAQ":   (15234.12, +0.87),
-        "DOW":      (37892.45, -0.34),
-        "VIX":      (13.45,    -2.10),
+        "NIFTY 50":  major_indices('^NSEI'),
+        "NIFTY MIDCAP 150":   major_indices('NIFTYMIDCAP150.ns'),
+        "BSE SENSEX": major_indices('^BSESN'),
+        "NIFTY Bank": major_indices('^NSEBANK'),
     }
     cards = ""
     for label, (val, chg) in idx.items():
@@ -364,14 +426,31 @@ if page_name == "Overview":
     # ── Top movers ─────────────────────────────────────────────────────────────
     st.markdown('<div class="section-header"><span class="section-dot"></span><span class="section-title">Top Movers</span></div>', unsafe_allow_html=True)
 
-    gainers = [("NVDA", +4.72, 789.30), ("META", +3.18, 503.12), ("AMD",  +2.91, 172.45)]
-    losers  = [("INTC", -3.45, 43.20),  ("NFLX", -2.08, 612.34), ("AMZN", -1.67, 182.67)]
+    nifty_top_list = ['RELIANCE.ns', 'HDFCBANK.ns', 'BHARTIARTL.ns', 'TCS.ns', 'ICICIBANK.ns', 'SBIN.ns', 'INFY.ns',
+                      'BAJFINANCE.ns', 'HINDUNILVR.ns', 'LICI.ns', 'LT.ns', 'ITC.ns', 'MARUTI.ns', 'M&M.ns',
+                      'HCLTECH.ns', 'KOTAKBANK.ns', 'SUNPHARMA.ns', 'AXISBANK.ns', 'ULTRACEMCO.ns', 'BAJAJFINSV.ns',
+                      'TITAN.ns', 'NTPC.ns', 'HAL.ns', 'ADANIPORTS.ns', 'ONGC.ns', 'ETERNAL.ns', 'BEL.ns',
+                      'ADANIENT.ns', 'DMART.ns', 'JSWSTEEL.ns', 'ADANIPOWER.ns', 'WIPRO.ns', 'POWERGRID.ns',
+                      'ASIANPAINT.ns', 'BAJAJ-AUTO.ns', 'COALINDIA.ns', 'NESTLEIND.ns', 'INDIGO.ns', 'IOC.ns',
+                      'TATASTEEL.ns', 'TMPV.ns', 'HINDZINC.ns', 'JIOFIN.ns', 'HYUNDAI.ns', 'GRASIM.ns', 'SBILIFE.ns',
+                      'VEDL.ns', 'DLF.ns', 'EICHERMOT.ns', 'TRENT.ns', 'HINDALCO.ns', 'DIVISLAB.ns', 'HDFCLIFE.ns',
+                      'LTM.ns', 'IRFC.ns', 'ADANIGREEN.ns', 'VBL.ns', 'TVSMOTOR.ns', 'PIDILITIND.ns', 'BPCL.ns',
+                      'TECHM.ns', 'BAJAJHLDNG.ns', 'BRITANNIA.ns', 'AMBUJACEM.ns', 'TATACAP.ns', 'BANKBARODA.ns',
+                      'CHOLAFIN.ns', 'SHRIRAMFIN.ns', 'TMCV.ns', 'PNB.ns', 'ICICIAMC.ns', 'PFC.ns', 'SOLARINDS.ns',
+                      'MUTHOOTFIN.ns', 'TATAPOWER.ns', 'CIPLA.ns', 'TORNTPHARM.ns', 'GODREJCP.ns', 'LODHA.ns',
+                      'HDFCAMC.ns', 'GAIL.ns', 'CANBK.ns', 'MAXHEALTH.ns', 'ENRIN.ns', 'SIEMENS.ns', 'MAZDOCK.ns',
+                      'BOSCHLTD.ns', 'ABB.ns', 'MOTHERSON.ns', 'CUMMINSIND.ns', 'TATACONSUM.ns', 'LGEINDIA.ns',
+                      'POLYCAB.ns', 'CGPOWER.ns', 'UNIONBANK.ns', 'ADANIENSOL.ns', 'APOLLOHOSP.ns', 'INDHOTEL.ns',
+                      'HEROMOTOCO.ns']
+    result = get_gainers_losers(nifty_top_list, top_n=3)
+    gainers = result["gainers"]
+    losers = result["losers"]
 
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**Gainers**", help="Top gaining stocks today")
         rows = "".join([
-            f"<tr><td>{t}</td><td>${p:.2f}</td><td class='tag-up'>+{c}%</td></tr>"
+            f"<tr><td>{t}</td><td>₹{p:.2f}</td><td class='tag-up'>+{c}%</td></tr>"
             for t, c, p in gainers
         ])
         st.markdown(f"""
@@ -383,7 +462,7 @@ if page_name == "Overview":
     with col2:
         st.markdown("**Losers**", help="Top losing stocks today")
         rows = "".join([
-            f"<tr><td>{t}</td><td>${p:.2f}</td><td class='tag-down'>{c}%</td></tr>"
+            f"<tr><td>{t}</td><td>₹{p:.2f}</td><td class='tag-down'>{c}%</td></tr>"
             for t, c, p in losers
         ])
         st.markdown(f"""
@@ -428,11 +507,11 @@ elif page_name == "Watchlist":
         arr  = "▲" if r["Change"] >= 0 else "▼"
         rows += f"""<tr>
             <td><b>{r['Ticker']}</b></td>
-            <td>${r['Price']:,.2f}</td>
+            <td>₹{r['Price']:,.2f}</td>
             <td class='{cls}'>{arr} {sign}{r['Change']}</td>
             <td class='{cls}'>{sign}{r['Change %']}%</td>
             <td>{r['Volume (M)']}M</td>
-            <td>${r['Mkt Cap (B)']}B</td>
+            <td>₹{r['Mkt Cap (B)']}B</td>
         </tr>"""
 
     st.markdown(f"""
@@ -460,12 +539,12 @@ elif page_name == "Chart":
     days_map = {"30D": 30, "60D": 60, "90D": 90, "180D": 180}
     df_chart = fake_ohlc(ticker, days_map[period])
 
-    p, c, cp = fake_price(ticker)
+    p, c, cp = real_price(ticker)
     sign = "+" if c >= 0 else ""
     col1, col2, col3 = st.columns(3)
-    col1.metric("Current Price",  f"${p:,.2f}")
+    col1.metric("Current Price",  f"₹{p:,.2f}")
     col2.metric("Daily Change",   f"{sign}{c}",   f"{sign}{cp}%")
-    col3.metric("Period High",    f"${df_chart['Price'].max():,.2f}")
+    col3.metric("Period High",    f"₹{df_chart['Price'].max():,.2f}")
 
     st.markdown('<div class="section-header"><span class="section-dot"></span>'
                 f'<span class="section-title">{ticker} · {period}</span></div>', unsafe_allow_html=True)
